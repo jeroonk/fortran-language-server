@@ -81,7 +81,7 @@ LINE_LABEL_REGEX = re.compile(r'[ ]*([0-9]+)[ ]+', re.I)
 NON_DEF_REGEX = re.compile(r'[ ]*(CALL[ ]+[a-z_]|[a-z_][a-z0-9_%]*[ ]*=)', re.I)
 # Fixed format matching rules
 FIXED_COMMENT_LINE_MATCH = re.compile(r'(!|c|d|\*)', re.I)
-FIXED_CONT_REGEX = re.compile(r'(     [\S])')
+FIXED_CONT_REGEX = re.compile(r'(     [\S]|\t[1-9])')
 FIXED_DOC_MATCH = re.compile(r'(?:!|c|d|\*)(<|>|!)', re.I)
 FIXED_OPENMP_MATCH = re.compile(r'[!|c|\*]\$OMP', re.I)
 # Free format matching rules
@@ -753,14 +753,12 @@ class fortran_file:
         try:
             if PY3K:
                 with open(self.path, 'r', encoding='utf-8', errors='replace') as fhandle:
-                    contents = re.sub(r'\t', r' ', fhandle.read())
-                    self.hash = hashlib.md5(contents.encode('utf-8')).hexdigest()
-                    self.contents_split = contents.splitlines()
+                    contents = fhandle.read()
             else:
                 with io.open(self.path, 'r', encoding='utf-8', errors='replace') as fhandle:
-                    contents = re.sub(r'\t', r' ', fhandle.read())
-                    self.hash = hashlib.md5(contents.encode('utf-8')).hexdigest()
-                    self.contents_split = contents.splitlines()
+                    contents = fhandle.read()
+            self.hash = hashlib.md5(contents.encode('utf-8')).hexdigest()
+            self.contents_split = contents.splitlines()
             self.fixed = detect_fixed_format(self.contents_split)
             self.contents_pp = self.contents_split
             self.nLines = len(self.contents_split)
@@ -895,13 +893,14 @@ class fortran_file:
             if self.fixed:  # Fixed format file
                 tmp_line = curr_line
                 while(line_ind > 0):
-                    if FIXED_CONT_REGEX.match(tmp_line):
+                    cont_match = FIXED_CONT_REGEX.match(tmp_line)
+                    if cont_match is not None:
                         prev_line = tmp_line
                         tmp_line = self.get_line(line_ind, pp_content)
                         if line_ind == line_number-1:
-                            curr_line = ' '*6 + curr_line[6:]
+                            curr_line = ' '*cont_match.end(0) + curr_line[cont_match.end(0):]
                         else:
-                            pre_lines[-1] = ' '*6 + prev_line[6:]
+                            pre_lines[-1] = ' '*cont_match.end(0) + prev_line[cont_match.end(0):]
                         pre_lines.append(tmp_line)
                     else:
                         break
@@ -934,7 +933,7 @@ class fortran_file:
                     line_ind += 1
                     cont_match = FIXED_CONT_REGEX.match(next_line)
                     while((cont_match is not None) and (line_ind < self.nLines)):
-                        post_lines.append(' '*6 + next_line[6:])
+                        post_lines.append(' '*cont_match.end(0) + next_line[cont_match.end(0):])
                         next_line = self.get_line(line_ind, pp_content)
                         line_ind += 1
                         cont_match = FIXED_CONT_REGEX.match(next_line)
@@ -971,6 +970,10 @@ class fortran_file:
         if strip_comment:
             curr_line = self.strip_comment(curr_line)
         pre_lines.reverse()
+        # Strip tabs
+        pre_lines = [line.replace('\t', ' ') for line in pre_lines]
+        post_lines = [line.replace('\t', ' ') for line in post_lines]
+        curr_line = curr_line.replace('\t', ' ')
         return pre_lines, curr_line, post_lines
 
     def strip_comment(self, line):
